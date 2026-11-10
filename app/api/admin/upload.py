@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import db_session, require_roles
 from app.config import get_settings
 from app.core.rate_limit import allow_request
+from app.core.text import remove_nul_characters
 from app.models import FileRecord, IngestionJob, User
 from app.storage import get_storage
 from app.workers.tasks import process_book
@@ -94,7 +95,7 @@ def upload_book(
             stored_size = get_storage().put(key, chunks(), "application/pdf")
             file_record = FileRecord(
                 storage_key=key,
-                original_name=os.path.basename(file.filename or "book.pdf"),
+                original_name=remove_nul_characters(os.path.basename(file.filename or "book.pdf")),
                 mime_type="application/pdf",
                 size_bytes=stored_size,
                 sha256=sha,

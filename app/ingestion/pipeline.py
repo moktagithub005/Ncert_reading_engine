@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.core.metrics import JOB_FAILURES, JOB_STAGE_SECONDS
+from app.core.text import sanitize_postgres_value
 from app.ingestion.detectors.boilerplate import remove_boilerplate
 from app.ingestion.detectors.captions import detect_caption
 from app.ingestion.detectors.headings import chapter_heading, topic_heading
@@ -63,6 +64,8 @@ def _stage(
     start = time.monotonic()
     try:
         result, summary = fn()
+        result = sanitize_postgres_value(result)
+        summary = sanitize_postgres_value(summary)
         run.status, run.output_summary = "succeeded", summary
         run.duration_ms = int((time.monotonic() - start) * 1000)
         run.finished_at = datetime.now(UTC)
