@@ -8,7 +8,7 @@ Backend for converting complete NCERT textbook PDFs into reviewable structured c
 2. Run `docker compose up --build`.
 3. In another shell, run `docker compose exec api alembic upgrade head`.
 4. Create the first admin with `docker compose exec api python scripts/create_admin.py --email admin@example.org --password 'use-a-long-password'`.
-5. Open `http://localhost:8000/docs`. Log in at `/api/v1/admin/auth/login`, then upload a PDF to `/api/v1/admin/books/upload` with class, subject, language, and edition fields.
+5. Open `http://localhost:8000/` for the small upload and content-checking UI, or `http://localhost:8000/docs` for the API. Sign in, upload a PDF with its book details, wait for the worker, then select a chapter and topic to see whether text was extracted.
 6. Poll the returned job, review the generated tree, correct and approve every item, then publish.
 
 The local Compose setup uses PostgreSQL 16, Redis, and MinIO. Set `STORAGE_BACKEND=local` to use local disk instead. Source PDFs are private; only assets belonging to published books can be fetched through the public API.

@@ -1703,6 +1703,54 @@
           "admin-ingestion"
         ]
       },
+      "get": {
+        "operationId": "get_draft_topic_api_v1_admin_topics__topic_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "topic_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Topic Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Draft Topic Api V1 Admin Topics  Topic Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Draft Topic",
+        "tags": [
+          "admin-ingestion"
+        ]
+      },
       "patch": {
         "operationId": "edit_topic_api_v1_admin_topics__topic_id__patch",
         "parameters": [

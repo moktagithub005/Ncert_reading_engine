@@ -180,6 +180,31 @@ def book_tree(
     return {"id": str(book.id), "title": book.title, "status": book.status, "chapters": result}
 
 
+@router.get("/topics/{topic_id}")
+def get_draft_topic(
+    topic_id: UUID,
+    db: Session = Depends(db_session),
+    _: User = Depends(require_roles("admin", "reviewer", "viewer")),
+) -> dict[str, Any]:
+    from app.models import Topic
+
+    topic = db.get(Topic, topic_id)
+    if topic is None:
+        raise HTTPException(404, "Topic not found")
+    return {
+        "id": str(topic.id),
+        "title": topic.title,
+        "code": topic.topic_code,
+        "content_text": topic.content_text,
+        "content_blocks": topic.content_blocks,
+        "word_count": topic.word_count,
+        "page_start": topic.page_start,
+        "page_end": topic.page_end,
+        "review_status": topic.review_status,
+        "confidence": topic.confidence,
+    }
+
+
 @router.patch("/chapters/{chapter_id}")
 def edit_chapter(
     chapter_id: UUID,

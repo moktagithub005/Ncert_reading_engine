@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NCERT Reading Engine · Test Console</title>
+  <style>
+    :root { color-scheme: light; font: 15px/1.5 system-ui, sans-serif; color: #152237; background: #f3f6fb; }
+    * { box-sizing: border-box; }
+    body { max-width: 1080px; margin: 0 auto; padding: 32px 20px 56px; }
+    h1, h2, p { margin-top: 0; }
+    h1 { font-size: 1.8rem; margin-bottom: 4px; }
+    h2 { font-size: 1.05rem; margin-bottom: 14px; }
+    .muted { color: #617087; }
+    .grid { display: grid; grid-template-columns: minmax(260px, 340px) 1fr; gap: 18px; margin-top: 22px; }
+    .card { background: white; border: 1px solid #dce4ef; border-radius: 12px; padding: 20px; box-shadow: 0 4px 18px #1d34520a; }
+    label { display: block; font-weight: 600; margin: 12px 0 5px; }
+    input, select, button { font: inherit; }
+    input, select { width: 100%; padding: 9px 10px; border: 1px solid #cbd5e1; border-radius: 7px; background: white; }
+    input[type=file] { padding: 7px; }
+    button { border: 0; border-radius: 7px; padding: 10px 14px; background: #155eef; color: white; font-weight: 650; cursor: pointer; }
+    button:disabled { opacity: .55; cursor: wait; }
+    .full { width: 100%; margin-top: 16px; }
+    .status { margin-top: 14px; min-height: 24px; color: #42526b; overflow-wrap: anywhere; }
+    .error { color: #b42318; }
+    .success { color: #067647; }
+    progress { width: 100%; height: 10px; margin-top: 6px; accent-color: #155eef; }
+    .browse { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .content { margin-top: 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fbfcfe; padding: 16px; min-height: 170px; }
+    .content pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 12px 0 0; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 99px; background: #eef4ff; color: #1849a9; font-size: .82rem; }
+    .hidden { display: none; }
+    @media (max-width: 720px) { body { padding: 20px 14px 40px; } .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>NCERT Reading Engine</h1>
+    <p class="muted">Upload a PDF, wait for processing, then check the extracted chapters, topics, and text.</p>
+  </header>
+
+  <main class="grid">
+    <section class="card">
+      <h2>1 · Sign in</h2>
+      <label for="email">Admin email</label>
+      <input id="email" type="email" autocomplete="username" placeholder="admin@example.org">
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password">
+      <button id="login" class="full">Sign in</button>
+      <p id="loginStatus" class="status" role="status"></p>
+
+      <hr>
+      <h2>2 · Upload a book PDF</h2>
+      <label for="pdf">PDF file</label>
+      <input id="pdf" type="file" accept="application/pdf,.pdf">
+      <label for="classNo">Class</label>
+      <select id="classNo"></select>
+      <label for="subject">Subject</label>
+      <input id="subject" value="Science" required>
+      <label for="language">Language</label>
+      <select id="language"><option value="en">English</option><option value="hi">Hindi</option></select>
+      <label for="edition">Edition</label>
+      <input id="edition" value="2026" required>
+      <button id="upload" class="full" disabled>Upload and process</button>
+      <div id="jobStatus" class="status" role="status"></div>
+      <progress id="progress" max="100" value="0" class="hidden"></progress>
+    </section>
+
+    <section class="card">
+      <h2>3 · Check extracted content</h2>
+      <p class="muted">After processing finishes, choose a chapter and topic. Empty text is shown clearly.</p>
+      <div id="bookInfo" class="status">No processed book loaded yet.</div>
+      <div id="browser" class="hidden">
+        <div class="browse">
+          <div>
+            <label for="chapterSelect">Chapter</label>
+            <select id="chapterSelect"></select>
+          </div>
+          <div>
+            <label for="topicSelect">Topic</label>
+            <select id="topicSelect"></select>
+          </div>
+        </div>
+        <div class="content">
+          <div id="topicMeta" class="muted">Choose a topic to inspect its extracted text.</div>
+          <pre id="topicText"></pre>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let accessToken = localStorage.getItem("ncert-test-token") || "";
+    let activeBook = null;
+    let chapters = [];
+    for (let n = 1; n <= 12; n += 1) $("classNo").add(new Option(`Class ${n}`, String(n)));
+
+    async function api(path, options = {}) {
+      const headers = new Headers(options.headers || {});
+      if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+      const response = await fetch(path, { ...options, headers });
+      const type = response.headers.get("content-type") || "";
+      const data = type.includes("application/json") ? await response.json() : await response.text();
+      if (!response.ok) {
+        const message = typeof data === "object" ? (data.detail || JSON.stringify(data)) : data;
+        if (response.status === 401) {
+          accessToken = "";
+          localStorage.removeItem("ncert-test-token");
+          $("upload").disabled = true;
+        }
+        throw new Error(message || `Request failed (${response.status})`);
+      }
+      return data;
+    }
+
+    function setMessage(id, message, kind = "") {
+      const node = $(id);
+      node.textContent = message;
+      node.className = `status ${kind}`;
+    }
+
+    $("login").addEventListener("click", async () => {
+      setMessage("loginStatus", "Signing in…");
+      try {
+        const result = await api("/api/v1/admin/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: $("email").value, password: $("password").value }),
+        });
+        accessToken = result.access_token;
+        localStorage.setItem("ncert-test-token", accessToken);
+        $("upload").disabled = false;
+        setMessage("loginStatus", "Signed in. You can upload a book.", "success");
+      } catch (error) {
+        setMessage("loginStatus", error.message, "error");
+      }
+    });
+
+    async function loadTree(bookId) {
+      const tree = await api(`/api/v1/admin/books/${bookId}/tree?include_flags=true`);
+      activeBook = tree;
+      chapters = tree.chapters;
+      $("bookInfo").textContent = `${tree.title} · ${tree.status} · ${chapters.length} chapter(s)`;
+      $("browser").classList.remove("hidden");
+      const select = $("chapterSelect");
+      select.replaceChildren(...chapters.map((chapter) =>
+        new Option(`${chapter.chapter_no}. ${chapter.title} (${chapter.topics.length} topics)`, chapter.id)));
+      await showTopics();
+    }
+
+    async function showTopics() {
+      const chapter = chapters.find((item) => item.id === $("chapterSelect").value);
+      const select = $("topicSelect");
+      select.replaceChildren();
+      if (!chapter || chapter.topics.length === 0) {
+        select.add(new Option("No topics detected", ""));
+        $("topicMeta").textContent = "No topics were detected in this chapter.";
+        $("topicText").textContent = "";
+        return;
+      }
+      const topicById = new Map(chapter.topics.map((topic) => [topic.id, topic]));
+      for (const topic of chapter.topics) {
+        const parent = topic.parent_id ? topicById.get(topic.parent_id) : null;
+        const prefix = parent ? "↳ " : "";
+        select.add(new Option(`${prefix}${topic.code ? `${topic.code} ` : ""}${topic.title}`, topic.id));
+      }
+      await showTopicContent();
+    }
+
+    async function showTopicContent() {
+      const topicId = $("topicSelect").value;
+      if (!topicId) return;
+      $("topicMeta").textContent = "Loading topic…";
+      $("topicText").textContent = "";
+      try {
+        const topic = await api(`/api/v1/admin/topics/${topicId}`);
+        const extracted = topic.content_text || "";
+        const verdict = extracted.trim() ? "Text extracted" : "No text extracted";
+        $("topicMeta").replaceChildren();
+        const badge = document.createElement("span");
+        badge.className = "pill";
+        badge.textContent = verdict;
+        $("topicMeta").append(badge, ` · ${topic.word_count} words · ${topic.review_status} · confidence ${Math.round(topic.confidence * 100)}%`);
+        $("topicText").textContent = extracted || "This topic has no extracted text. Check the quality report and source PDF.";
+      } catch (error) {
+        $("topicMeta").textContent = error.message;
+      }
+    }
+
+    $("chapterSelect").addEventListener("change", () => showTopics().catch((error) => setMessage("jobStatus", error.message, "error")));
+    $("topicSelect").addEventListener("change", showTopicContent);
+
+    async function waitForJob(jobId) {
+      $("progress").classList.remove("hidden");
+      while (true) {
+        const job = await api(`/api/v1/admin/jobs/${jobId}`);
+        $("progress").value = job.progress_percent || 0;
+        setMessage("jobStatus", `${job.status} · ${job.current_stage || "waiting"} · ${job.progress_percent || 0}%`);
+        if (job.status === "succeeded") {
+          await loadTree(job.book_id);
+          setMessage("jobStatus", "Processing complete. Select a topic to check its content.", "success");
+          return;
+        }
+        if (["failed", "cancelled"].includes(job.status)) {
+          throw new Error(job.error_message || `Processing ${job.status}`);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+    }
+
+    $("upload").addEventListener("click", async () => {
+      const file = $("pdf").files[0];
+      if (!file) return setMessage("jobStatus", "Choose a PDF file first.", "error");
+      const button = $("upload");
+      button.disabled = true;
+      setMessage("jobStatus", "Uploading PDF…");
+      try {
+        const form = new FormData();
+        form.set("file", file);
+        form.set("class_no", $("classNo").value);
+        form.set("subject", $("subject").value);
+        form.set("language", $("language").value);
+        form.set("edition", $("edition").value);
+        const result = await api("/api/v1/admin/books/upload", { method: "POST", body: form });
+        await waitForJob(result.job_id);
+      } catch (error) {
+        setMessage("jobStatus", error.message, "error");
+      } finally {
+        button.disabled = !accessToken;
+      }
+    });
+
+    if (accessToken) {
+      api("/api/v1/admin/auth/me").then(() => {
+        $("upload").disabled = false;
+        setMessage("loginStatus", "Your saved session is active.", "success");
+      }).catch(() => {});
+    }
+  </script>
+</body>
+</html>
