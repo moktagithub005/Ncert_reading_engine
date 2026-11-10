@@ -26,6 +26,8 @@
     .success { color: #067647; }
     progress { width: 100%; height: 10px; margin-top: 6px; accent-color: #155eef; }
     .browse { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .check-row { display: flex; gap: 8px; align-items: flex-start; margin-top: 14px; color: #42526b; font-size: .92rem; }
+    .check-row input { width: auto; margin-top: 4px; }
     .content { margin-top: 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fbfcfe; padding: 16px; min-height: 170px; }
     .content pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 14px/1.65 ui-monospace, SFMono-Regular, Menlo, monospace; margin: 12px 0 0; }
     .pill { display: inline-block; padding: 2px 8px; border-radius: 99px; background: #eef4ff; color: #1849a9; font-size: .82rem; }
@@ -61,6 +63,7 @@
       <select id="language"><option value="en">English</option><option value="hi">Hindi</option></select>
       <label for="edition">Edition</label>
       <input id="edition" value="2026" required>
+      <label class="check-row"><input id="reprocess" type="checkbox"><span>Reprocess this PDF if it was uploaded before (replaces the generated draft).</span></label>
       <button id="upload" class="full" disabled>Upload and process</button>
       <div id="jobStatus" class="status" role="status"></div>
       <progress id="progress" max="100" value="0" class="hidden"></progress>
@@ -144,8 +147,9 @@
       $("bookInfo").textContent = `${tree.title} · ${tree.status} · ${chapters.length} chapter(s)`;
       $("browser").classList.remove("hidden");
       const select = $("chapterSelect");
-      select.replaceChildren(...chapters.map((chapter) =>
+      select.replaceChildren(new Option("Select a chapter…", ""), ...chapters.map((chapter) =>
         new Option(`${chapter.chapter_no}. ${chapter.title} (${chapter.topics.length} topics)`, chapter.id)));
+      select.value = "";
       await showTopics();
     }
 
@@ -153,7 +157,13 @@
       const chapter = chapters.find((item) => item.id === $("chapterSelect").value);
       const select = $("topicSelect");
       select.replaceChildren();
-      if (!chapter || chapter.topics.length === 0) {
+      if (!chapter) {
+        select.add(new Option("Select a chapter first", ""));
+        $("topicMeta").textContent = "Select a chapter to see its topics.";
+        $("topicText").textContent = "";
+        return;
+      }
+      if (chapter.topics.length === 0) {
         select.add(new Option("No topics detected", ""));
         $("topicMeta").textContent = "No topics were detected in this chapter.";
         $("topicText").textContent = "";
@@ -222,6 +232,7 @@
         form.set("subject", $("subject").value);
         form.set("language", $("language").value);
         form.set("edition", $("edition").value);
+        form.set("reprocess", String($("reprocess").checked));
         const result = await api("/api/v1/admin/books/upload", { method: "POST", body: form });
         await waitForJob(result.job_id);
       } catch (error) {

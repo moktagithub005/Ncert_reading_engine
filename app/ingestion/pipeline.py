@@ -224,15 +224,32 @@ def run_pipeline(db: Session, job: IngestionJob) -> None:
                     )
             if not candidates:
                 for page_no, lines in enumerate(clean_pages, 1):
-                    for line in lines:
+                    for line_index, line in enumerate(lines):
+                        if line.get("y", 0) > settings.chapter_heading_y_threshold:
+                            continue
                         found = chapter_heading(line["text"])
                         if found:
+                            title = found[1]
+                            if title.casefold() == line["text"].strip().casefold():
+                                title_lines: list[str] = []
+                                for next_line in lines[line_index + 1 :]:
+                                    if chapter_heading(next_line["text"]) or topic_heading(
+                                        next_line, extracted["body_size"]
+                                    ):
+                                        break
+                                    if next_line.get("size", 0) >= extracted["body_size"] * 1.5:
+                                        title_lines.append(next_line["text"].strip())
+                                    elif title_lines:
+                                        break
+                                if title_lines:
+                                    title = " ".join(title_lines)
                             candidates.append(
                                 {
                                     "no": found[0],
-                                    "title": found[1],
+                                    "title": title,
                                     "start": page_no,
-                                    "confidence": 0.72 if line["source"] == "pdf" else 0.45,
+                                    "confidence": 0.86 if line["source"] == "pdf" else 0.55,
+                                    "heading_y": line.get("y", 0),
                                 }
                             )
             if not candidates:
@@ -256,6 +273,16 @@ def run_pipeline(db: Session, job: IngestionJob) -> None:
                     line
                     for p in range(chapter["start"], chapter["end"] + 1)
                     for line in clean_pages[p - 1]
+                    if not (
+                        p == chapter["start"]
+                        and "heading_y" in chapter
+                        and line.get("y", 0) - chapter["heading_y"]
+                        <= settings.chapter_heading_y_threshold
+                        and (
+                            chapter_heading(line["text"])
+                            or line.get("size", 0) >= extracted["body_size"] * 1.5
+                        )
+                    )
                 ]
                 heading_lines = []
                 for line_idx, line in enumerate(chapter_lines):
