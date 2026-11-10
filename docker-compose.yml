@@ -13,7 +13,7 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       minio-init: { condition: service_completed_successfully }
-    volumes: ["ncert-data:/data"]
+    volumes: ["ncert-data:/data", "./app:/app/app:ro"]
   worker:
     build: .
     command: celery -A app.workers.celery_app.celery_app worker --loglevel=INFO
@@ -27,7 +27,7 @@ services:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
       minio-init: { condition: service_completed_successfully }
-    volumes: ["ncert-data:/data"]
+    volumes: ["ncert-data:/data", "./app:/app/app:ro"]
   postgres:
     image: postgres:16-alpine
     environment:

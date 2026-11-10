@@ -991,6 +991,36 @@
         ]
       }
     },
+    "/api/v1/admin/books/recent": {
+      "get": {
+        "operationId": "recent_book_api_v1_admin_books_recent_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Recent Book Api V1 Admin Books Recent Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Recent Book",
+        "tags": [
+          "admin-ingestion"
+        ]
+      }
+    },
     "/api/v1/admin/books/upload": {
       "post": {
         "operationId": "upload_book_api_v1_admin_books_upload_post",

@@ -134,7 +134,8 @@
         accessToken = result.access_token;
         localStorage.setItem("ncert-test-token", accessToken);
         $("upload").disabled = false;
-        setMessage("loginStatus", "Signed in. You can upload a book.", "success");
+        setMessage("loginStatus", "Signed in. Loading the latest book…", "success");
+        await loadRecentBook();
       } catch (error) {
         setMessage("loginStatus", error.message, "error");
       }
@@ -143,6 +144,7 @@
     async function loadTree(bookId) {
       const tree = await api(`/api/v1/admin/books/${bookId}/tree?include_flags=true`);
       activeBook = tree;
+      localStorage.setItem("ncert-test-book-id", bookId);
       chapters = tree.chapters;
       $("bookInfo").textContent = `${tree.title} · ${tree.status} · ${chapters.length} chapter(s)`;
       $("browser").classList.remove("hidden");
@@ -151,6 +153,19 @@
         new Option(`${chapter.chapter_no}. ${chapter.title} (${chapter.topics.length} topics)`, chapter.id)));
       select.value = "";
       await showTopics();
+    }
+
+    async function loadRecentBook() {
+      try {
+        const recent = await api("/api/v1/admin/books/recent");
+        await loadTree(recent.id);
+      } catch (error) {
+        if (error.message.includes("No books have been uploaded yet")) {
+          $("bookInfo").textContent = "No uploaded book found yet. Upload a PDF to get started.";
+          return;
+        }
+        setMessage("jobStatus", error.message, "error");
+      }
     }
 
     async function showTopics() {
@@ -246,6 +261,7 @@
       api("/api/v1/admin/auth/me").then(() => {
         $("upload").disabled = false;
         setMessage("loginStatus", "Your saved session is active.", "success");
+        return loadRecentBook();
       }).catch(() => {});
     }
   </script>

@@ -180,6 +180,17 @@ def book_tree(
     return {"id": str(book.id), "title": book.title, "status": book.status, "chapters": result}
 
 
+@router.get("/books/recent")
+def recent_book(
+    db: Session = Depends(db_session),
+    _: User = Depends(require_roles("admin", "reviewer", "viewer")),
+) -> dict[str, str]:
+    book = db.scalar(select(Book).order_by(Book.created_at.desc()).limit(1))
+    if book is None:
+        raise HTTPException(404, "No books have been uploaded yet")
+    return {"id": str(book.id), "title": book.title, "status": book.status}
+
+
 @router.get("/topics/{topic_id}")
 def get_draft_topic(
     topic_id: UUID,
