@@ -39,10 +39,11 @@ class Settings(BaseSettings):
     heading_max_chars: int = 120
     boilerplate_repeat_ratio: float = 0.25
     chapter_heading_y_threshold: float = 0.18
+    chapter_title_y_span: float = 0.35
     body_text_min_font: float = 0.0
     page_number_regex: str = r"^\s*(?:page\s*)?\d{1,4}\s*$"
     chapter_heading_regex: str = (
-        r"^\s*(?:chapter|अध्याय)\s*"
+        r"^\s*(?:chapter|unit|अध्याय|इकाई)\s*"
         r"(\d+|one|two|three|four|five|six|seven|eight|nine|ten|"
         r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)"
         r"\s*[:.\-–]?\s*(.*)$"

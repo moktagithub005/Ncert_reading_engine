@@ -43,6 +43,53 @@ def _special_block_type(title: str) -> str:
     return "topic"
 
 
+def _chapter_heading_at(
+    lines: list[dict[str, Any]], line_index: int
+) -> tuple[int, str] | None:
+    line = lines[line_index]
+    heading = chapter_heading(line["text"])
+    if heading:
+        return heading
+    if str(line["text"]).strip().casefold() != "unit":
+        return None
+    for next_line in lines[line_index + 1 : line_index + 4]:
+        if next_line.get("y", 0) - line.get("y", 0) > 0.05:
+            break
+        number = str(next_line["text"]).strip()
+        if number.isdigit() and 1 <= int(number) <= 20:
+            return int(number), f"Unit {number}"
+    return None
+
+
+def _chapter_title_from_lines(
+    lines: list[dict[str, Any]], line_index: int, body_size: float
+) -> str | None:
+    min_title_size = max(body_size * 1.5, 18.0)
+    title_by_y: dict[float, str] = {}
+    for next_line in lines[line_index + 1 :]:
+        if chapter_heading(next_line["text"]):
+            break
+        value = str(next_line["text"]).strip()
+        normalized = value.casefold().strip(" :.-")
+        if normalized in {"objectives", "objective", "unit", "contents"}:
+            continue
+        if value.isdigit():
+            continue
+        heading = topic_heading(next_line, body_size)
+        if heading and heading[0] is not None:
+            break
+        size = float(next_line.get("size", 0))
+        if size >= min_title_size:
+            y = round(float(next_line.get("y", 0)), 2)
+            previous = title_by_y.get(y, "")
+            if len(value) > len(previous):
+                title_by_y[y] = value
+        elif title_by_y:
+            break
+    result = " ".join(title_by_y[y] for y in sorted(title_by_y))
+    return result or None
+
+
 class JobCancelled(Exception):
     pass
 
@@ -230,22 +277,17 @@ def run_pipeline(db: Session, job: IngestionJob) -> None:
                     for line_index, line in enumerate(lines):
                         if line.get("y", 0) > settings.chapter_heading_y_threshold:
                             continue
-                        found = chapter_heading(line["text"])
+                        found = _chapter_heading_at(lines, line_index)
                         if found:
                             title = found[1]
-                            if title.casefold() == line["text"].strip().casefold():
-                                title_lines: list[str] = []
-                                for next_line in lines[line_index + 1 :]:
-                                    if chapter_heading(next_line["text"]) or topic_heading(
-                                        next_line, extracted["body_size"]
-                                    ):
-                                        break
-                                    if next_line.get("size", 0) >= extracted["body_size"] * 1.5:
-                                        title_lines.append(next_line["text"].strip())
-                                    elif title_lines:
-                                        break
-                                if title_lines:
-                                    title = " ".join(title_lines)
+                            is_prefix = (
+                                title.casefold() == line["text"].strip().casefold()
+                                or line["text"].strip().casefold().startswith("unit")
+                            )
+                            if is_prefix:
+                                title = _chapter_title_from_lines(
+                                    lines, line_index, extracted["body_size"]
+                                ) or title
                             candidates.append(
                                 {
                                     "no": found[0],
@@ -255,6 +297,35 @@ def run_pipeline(db: Session, job: IngestionJob) -> None:
                                     "heading_y": line.get("y", 0),
                                 }
                             )
+            if candidates:
+                known_numbers = {chapter["no"] for chapter in candidates}
+                first_body_page = min(chapter["start"] for chapter in candidates)
+                for page_no, lines in enumerate(clean_pages, 1):
+                    if page_no < first_body_page:
+                        continue
+                    for line in lines:
+                        heading = topic_heading(line, extracted["body_size"])
+                        code = heading[0] if heading else None
+                        match = re.fullmatch(r"([1-9]\d?)\.1", code or "")
+                        if (
+                            heading
+                            and heading[0] is not None
+                            and
+                            match
+                            and int(match.group(1)) not in known_numbers
+                            and line.get("y", 0) <= 0.45
+                        ):
+                            number = int(match.group(1))
+                            candidates.append(
+                                {
+                                    "no": number,
+                                    "title": heading[1],
+                                    "start": page_no,
+                                    "confidence": 0.58,
+                                }
+                            )
+                            known_numbers.add(number)
+                            break
             if not candidates:
                 candidates = [
                     {
@@ -279,11 +350,13 @@ def run_pipeline(db: Session, job: IngestionJob) -> None:
                     if not (
                         p == chapter["start"]
                         and "heading_y" in chapter
-                        and line.get("y", 0) - chapter["heading_y"]
-                        <= settings.chapter_heading_y_threshold
+                        and 0
+                        <= line.get("y", 0) - chapter["heading_y"]
+                        <= settings.chapter_title_y_span
                         and (
                             chapter_heading(line["text"])
-                            or line.get("size", 0) >= extracted["body_size"] * 1.5
+                            or line.get("size", 0)
+                            >= max(extracted["body_size"] * 1.5, 18.0)
                         )
                     )
                 ]
