@@ -1,0 +1,37 @@
+{
+  "science_chapter": {
+    "chapters": 1,
+    "topics": [
+      "What are materials?",
+      "Grouping materials"
+    ]
+  },
+  "maths_chapter": {
+    "chapters": 1,
+    "topics": [
+      "Equivalent fractions",
+      "Comparing fractions"
+    ]
+  },
+  "hindi_chapter": {
+    "chapters": 1,
+    "topics": [
+      "प्रकाश के स्रोत"
+    ]
+  },
+  "scanned_page": {
+    "chapters": 1,
+    "topics": [
+      "Parts of a plant"
+    ],
+    "ocr_pages": [
+      1
+    ]
+  },
+  "two_column_chapter": {
+    "chapters": 1,
+    "topics": [
+      "Needs of living things"
+    ]
+  }
+}

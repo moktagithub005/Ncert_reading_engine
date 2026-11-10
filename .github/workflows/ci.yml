@@ -1,0 +1,35 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env: { POSTGRES_USER: ncert, POSTGRES_PASSWORD: ncert, POSTGRES_DB: ncert }
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U ncert" --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7
+        ports: [6379:6379]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip }
+      - run: sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-hin
+      - run: pip install -e '.[dev]'
+      - run: pip-audit --skip-editable
+      - run: ruff check . && ruff format --check .
+      - run: mypy app
+      - run: alembic upgrade head
+        env:
+          DATABASE_URL: postgresql+psycopg://ncert:ncert@localhost:5432/ncert
+      - run: pytest --cov=app --cov-fail-under=80
+        env:
+          DATABASE_URL: postgresql+psycopg://ncert:ncert@localhost:5432/ncert
+          REDIS_URL: redis://localhost:6379/0
+          JWT_SECRET: ci-only-secret
+          STORAGE_BACKEND: local
+          NCERT_INTEGRATION_TESTS: "1"
+      - run: docker build -t ncert-platform .

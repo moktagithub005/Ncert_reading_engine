@@ -1,0 +1,1 @@
+"""Configurable document detectors."""
