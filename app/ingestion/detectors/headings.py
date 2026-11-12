@@ -33,9 +33,25 @@ def chapter_heading(text: str) -> tuple[int, str] | None:
     match = CHAPTER.match(text)
     if not match:
         return None
-    number_text = match.group(1).casefold()
+    num_str = (
+        match.group("num1")
+        if "num1" in match.groupdict() and match.group("num1")
+        else (
+            match.group("num2")
+            if "num2" in match.groupdict() and match.group("num2")
+            else match.group(1)
+        )
+    )
+    if not num_str:
+        return None
+    number_text = num_str.casefold()
     number = int(number_text) if number_text.isdigit() else CHAPTER_NUMBERS[number_text]
-    return number, match.group(2).strip() or text.strip()
+    title = (
+        match.group("title").strip()
+        if "title" in match.groupdict() and match.group("title")
+        else ""
+    )
+    return number, title or text.strip()
 
 
 def topic_heading(
@@ -48,7 +64,13 @@ def topic_heading(
         return None
     match = NUMBERED.match(value)
     if match:
-        code, title = match.group(1), match.group(2)
+        code, title = match.group(1), match.group(2).strip()
+        if not title:
+            return None
+        if sum(1 for ch in title if ch.isalpha()) < 2:
+            return None
+        if title.startswith(("(", "[", ")", "]", "-", "–", ":")):
+            return None
         return (
             code,
             title,

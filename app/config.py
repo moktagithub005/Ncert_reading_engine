@@ -43,15 +43,19 @@ class Settings(BaseSettings):
     body_text_min_font: float = 0.0
     page_number_regex: str = r"^\s*(?:page\s*)?\d{1,4}\s*$"
     chapter_heading_regex: str = (
-        r"^\s*(?:chapter|unit|अध्याय|इकाई)\s*"
-        r"(\d+|one|two|three|four|five|six|seven|eight|nine|ten|"
+        r"^\s*(?:(?:chapter|unit|अध्याय|इकाई)\s*"
+        r"(?P<num1>\d+|one|two|three|four|five|six|seven|eight|nine|ten|"
         r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)"
-        r"\s*[:.\-–]?\s*(.*)$"
+        r"|(?P<num2>\d+|one|two|three|four|five|six|seven|eight|nine|ten|"
+        r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty)\s*"
+        r"(?:chapter|unit|अध्याय|इकाई))"
+        r"\s*[:.\-–]?\s*(?P<title>.*)$"
     )
-    numbered_heading_regex: str = r"^\s*(\d+(?:\.\d+){0,5})\s+(.+?)\s*$"
+    numbered_heading_regex: str = r"^\s*(\d+(?:\.\d+)+)\s*(.*?)\s*$"
     figure_caption_regex: str = r"\b(?:Fig(?:ure)?\.?\s*[\d.]+)\b"
     special_block_regex: str = (
-        r"activity|let us recall|do you know|keywords|exercise|summary|what you have learnt"
+        r"\b(?:activity|activities|let us recall|do you know|keywords|exercise|exercises|"
+        r"summary|what you have learnt|points to ponder|miscellaneous exercise)\b"
     )
     activity_regex: str = r"activity|let us recall"
     exercise_regex: str = r"exercise|exercises"

@@ -9,6 +9,8 @@ from app.ingestion.detectors.headings import chapter_heading, topic_heading
 def test_chapter_detector_handles_english_and_hindi() -> None:
     assert chapter_heading("Chapter 3: Atoms") == (3, "Atoms")
     assert chapter_heading("अध्याय 4 प्रकाश") == (4, "प्रकाश")
+    assert chapter_heading("1 Chapter") == (1, "1 Chapter")
+    assert chapter_heading("1 Chapter: Relations") == (1, "Relations")
     assert chapter_heading("A normal sentence") is None
 
 
@@ -16,6 +18,8 @@ def test_topic_heading_uses_numbering_and_font_strength() -> None:
     numbered = topic_heading({"text": "3.2 Motion", "bold": False, "size": 13}, 10)
     assert numbered == ("3.2", "Motion", 2, 0.82)
     assert topic_heading({"text": "An ordinary line", "bold": False, "size": 10}, 10) is None
+    assert topic_heading({"text": "2.87", "bold": False, "size": 10}, 10) is None
+    assert topic_heading({"text": "3.2 (c)] Electrolytic", "bold": False, "size": 10}, 10) is None
 
 
 def test_topic_heading_covers_length_special_block_and_bold_rules() -> None:

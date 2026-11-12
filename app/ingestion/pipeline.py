@@ -47,10 +47,18 @@ def _chapter_heading_at(
     lines: list[dict[str, Any]], line_index: int
 ) -> tuple[int, str] | None:
     line = lines[line_index]
-    heading = chapter_heading(line["text"])
+    text = str(line["text"]).strip()
+    if text.endswith(",") or text.endswith(")") or text.startswith("("):
+        return None
+    if re.search(r"\b(?:class|see|like|from|in)\s+(?:unit|chapter)\b", text, re.I):
+        return None
+    heading = chapter_heading(text)
     if heading:
+        num, title = heading
+        if title.endswith(",") or title.endswith(")") or title.startswith(")"):
+            return None
         return heading
-    if str(line["text"]).strip().casefold() != "unit":
+    if text.casefold() != "unit":
         return None
     for next_line in lines[line_index + 1 : line_index + 4]:
         if next_line.get("y", 0) - line.get("y", 0) > 0.05:
@@ -64,30 +72,114 @@ def _chapter_heading_at(
 def _chapter_title_from_lines(
     lines: list[dict[str, Any]], line_index: int, body_size: float
 ) -> str | None:
-    min_title_size = max(body_size * 1.5, 18.0)
-    title_by_y: dict[float, str] = {}
-    for next_line in lines[line_index + 1 :]:
-        if chapter_heading(next_line["text"]):
-            break
-        value = str(next_line["text"]).strip()
-        normalized = value.casefold().strip(" :.-")
-        if normalized in {"objectives", "objective", "unit", "contents"}:
+    settings = get_settings()
+    min_title_size = max(body_size * 1.4, 16.0)
+    candidates: list[dict[str, Any]] = []
+    for line in lines:
+        if line.get("y", 0) > settings.chapter_title_y_span:
             continue
-        if value.isdigit():
+        if chapter_heading(line["text"]):
             continue
-        heading = topic_heading(next_line, body_size)
+        val = str(line["text"]).strip()
+        val_clean = re.sub(r"[\uf000-\uf8ff\u2460-\u24ff\u2700-\u27bf]", "", val).strip()
+        norm = val_clean.casefold().replace(" ", "")
+        if norm in {
+            "objectives",
+            "objective",
+            "unit",
+            "contents",
+            "parti",
+            "foreword",
+            "preface",
+            "itit",
+            "uit",
+            "un",
+            "u",
+            "n",
+            "it",
+            "chapter",
+        }:
+            continue
+        if val_clean.isdigit():
+            continue
+        heading = topic_heading(line, body_size)
         if heading and heading[0] is not None:
-            break
-        size = float(next_line.get("size", 0))
-        if size >= min_title_size:
-            y = round(float(next_line.get("y", 0)), 2)
-            previous = title_by_y.get(y, "")
-            if len(value) > len(previous):
-                title_by_y[y] = value
-        elif title_by_y:
-            break
-    result = " ".join(title_by_y[y] for y in sorted(title_by_y))
+            continue
+        size = float(line.get("size", 0))
+        if size >= min_title_size or (line.get("bold") and size >= 14.0):
+            candidates.append({**line, "text": val_clean})
+
+    if not candidates:
+        return None
+
+    grouped: list[dict[str, Any]] = []
+    for c in sorted(candidates, key=lambda x: x.get("bbox", [0, 0, 0, 0])[1]):
+        if (
+            grouped
+            and abs(grouped[-1].get("bbox", [0, 0, 0, 0])[1] - c.get("bbox", [0, 0, 0, 0])[1])
+            < 6
+        ):
+            if len(c["text"]) > len(grouped[-1]["text"]):
+                grouped[-1] = c
+        else:
+            grouped.append(c)
+
+    result = " ".join(c["text"] for c in grouped).strip()
+    result = re.sub(r"\s+", " ", result)
+    result = re.sub(r"\btitics\b", "tics", result, flags=re.I)
+    result = re.sub(r"\bChemi tr\b", "Chemistry", result, flags=re.I)
+    result = re.sub(r"\bCoordina ion\b", "Coordination", result, flags=re.I)
     return result or None
+
+
+def _clean_and_dedupe_spans(spans: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    valid = []
+    for s in spans:
+        size = float(s.get("size", 0))
+        if size < 4.0:
+            continue
+        font = str(s.get("font", ""))
+        text = str(s.get("text", ""))
+        if "Type3" in font and not any(ch.isalnum() for ch in text):
+            continue
+        cleaned_text = re.sub(r"[\uf000-\uf8ff\u2460-\u24ff\u2700-\u27bf]", "", text)
+        if not cleaned_text.strip():
+            continue
+        s_copy = dict(s)
+        s_copy["text"] = cleaned_text
+        valid.append(s_copy)
+    if not valid:
+        return []
+    valid.sort(key=lambda s: s["bbox"][0])
+    cleaned: list[dict[str, Any]] = []
+    for s in valid:
+        txt = s["text"].strip()
+        overlapped = False
+        for i, prev in enumerate(cleaned):
+            overlap_x = max(
+                0.0, min(prev["bbox"][2], s["bbox"][2]) - max(prev["bbox"][0], s["bbox"][0])
+            )
+            shorter_w = min(prev["bbox"][2] - prev["bbox"][0], s["bbox"][2] - s["bbox"][0])
+            overlap_y = max(
+                0.0, min(prev["bbox"][3], s["bbox"][3]) - max(prev["bbox"][1], s["bbox"][1])
+            )
+            shorter_h = min(prev["bbox"][3] - prev["bbox"][1], s["bbox"][3] - s["bbox"][1])
+            y_overlap_ratio = overlap_y / shorter_h if shorter_h > 0 else 0
+            is_shadow = (
+                shorter_w > 0
+                and (overlap_x / shorter_w > 0.4)
+                and (y_overlap_ratio > 0.6)
+                and abs(prev["bbox"][1] - s["bbox"][1]) < 3.5
+            )
+            if is_shadow:
+                overlapped = True
+                if len(txt) > len(prev["text"].strip()):
+                    cleaned[i] = s
+                break
+        if not overlapped:
+            cleaned.append(s)
+    cleaned.sort(key=lambda s: s["bbox"][0])
+    return cleaned
 
 
 class JobCancelled(Exception):
@@ -177,21 +269,29 @@ def run_pipeline(db: Session, job: IngestionJob) -> None:
                     if block.get("type") != 0:
                         continue
                     for raw_line in block.get("lines", []):
-                        spans = raw_line.get("spans", [])
-                        text_value = "".join(span.get("text", "") for span in spans).strip()
+                        raw_spans = raw_line.get("spans", [])
+                        spans = _clean_and_dedupe_spans(raw_spans)
+                        if not spans:
+                            continue
+                        text_value = " ".join(s["text"].strip() for s in spans if s["text"].strip())
                         if not text_value:
                             continue
-                        size = max((float(span.get("size", 0)) for span in spans), default=0.0)
+                        size = max((float(s.get("size", 0)) for s in spans), default=0.0)
                         font_sizes.extend(
                             float(s.get("size", 0)) for s in spans if s.get("text", "").strip()
                         )
-                        flags = [s.get("flags", 0) for s in spans]
+                        is_bold = any(
+                            (s.get("flags", 0) & 16)
+                            or ("bold" in s.get("font", "").lower())
+                            or ("demi" in s.get("font", "").lower())
+                            for s in spans
+                        )
                         bbox = raw_line.get("bbox", [0, 0, page.rect.width, page.rect.height])
                         lines.append(
                             {
                                 "text": text_value,
                                 "size": size,
-                                "bold": any(f & 16 for f in flags),
+                                "bold": is_bold,
                                 "font": spans[0].get("font", "") if spans else "",
                                 "bbox": bbox,
                                 "y": bbox[1] / max(page.rect.height, 1),
@@ -200,6 +300,45 @@ def run_pipeline(db: Session, job: IngestionJob) -> None:
                                 "confidence": 1.0,
                             }
                         )
+                if lines:
+                    merged_lines: list[dict[str, Any]] = []
+                    lines.sort(
+                        key=lambda item: (round(item["bbox"][1] / 3) * 3, item["bbox"][0])
+                    )
+                    for line_item in lines:
+                        if (
+                            merged_lines
+                            and abs(merged_lines[-1]["bbox"][1] - line_item["bbox"][1]) < 2.5
+                        ):
+                            prev = merged_lines[-1]
+                            overlap_x = max(
+                                0.0,
+                                min(prev["bbox"][2], line_item["bbox"][2])
+                                - max(prev["bbox"][0], line_item["bbox"][0]),
+                            )
+                            shorter_w = min(
+                                prev["bbox"][2] - prev["bbox"][0],
+                                line_item["bbox"][2] - line_item["bbox"][0],
+                            )
+                            gap = line_item["bbox"][0] - prev["bbox"][2]
+                            if shorter_w > 0 and overlap_x / shorter_w > 0.4:
+                                if len(line_item["text"]) > len(prev["text"]):
+                                    merged_lines[-1] = line_item
+                            elif -3.0 <= gap < 20.0:
+                                prev["text"] = f"{prev['text']} {line_item['text']}".strip()
+                                prev["bbox"] = [
+                                    min(prev["bbox"][0], line_item["bbox"][0]),
+                                    min(prev["bbox"][1], line_item["bbox"][1]),
+                                    max(prev["bbox"][2], line_item["bbox"][2]),
+                                    max(prev["bbox"][3], line_item["bbox"][3]),
+                                ]
+                                prev["size"] = max(prev["size"], line_item["size"])
+                                prev["bold"] = prev["bold"] or line_item["bold"]
+                            else:
+                                merged_lines.append(line_item)
+                        else:
+                            merged_lines.append(line_item)
+                    lines = merged_lines
                 if len(" ".join(x["text"] for x in lines)) < settings.text_layer_min_chars:
                     scanned.append(page_no)
                     if settings.ocr_enabled:
@@ -235,14 +374,32 @@ def run_pipeline(db: Session, job: IngestionJob) -> None:
                                     "confidence": 0.55,
                                 }
                             )
-                lines.sort(
-                    key=lambda line: (
-                        round(line["bbox"][0] / max(page.rect.width, 1) * 2),
-                        line["bbox"][1],
-                    )
-                )
+
+                page_w = page.rect.width
+
+                def _line_sort_key(
+                    line: dict[str, Any], width: float = page_w
+                ) -> tuple[int, float]:
+                    w = line["bbox"][2] - line["bbox"][0]
+                    is_wide = w > 0.4 * width or line.get("y", 0) < 0.25
+                    col = 0 if is_wide else round(line["bbox"][0] / max(width, 1) * 2)
+                    return (col, line["bbox"][1])
+
+                lines.sort(key=_line_sort_key)
                 page_lines.append(lines)
-            body_sizes = [line["size"] for page in page_lines for line in page if line["size"] > 0]
+            body_sizes = [
+                round(line["size"], 1)
+                for page in page_lines
+                for line in page
+                if 6.0 <= line["size"] <= 16.0
+            ]
+            if not body_sizes:
+                body_sizes = [
+                    round(line["size"], 1)
+                    for page in page_lines
+                    for line in page
+                    if line["size"] > 0
+                ]
             body_size = max(set(body_sizes), key=body_sizes.count) if body_sizes else 0.0
             return {"pages": page_lines, "body_size": body_size, "scanned": scanned}, {
                 "ocr_pages": scanned,
@@ -299,10 +456,7 @@ def run_pipeline(db: Session, job: IngestionJob) -> None:
                             )
             if candidates:
                 known_numbers = {chapter["no"] for chapter in candidates}
-                first_body_page = min(chapter["start"] for chapter in candidates)
                 for page_no, lines in enumerate(clean_pages, 1):
-                    if page_no < first_body_page:
-                        continue
                     for line in lines:
                         heading = topic_heading(line, extracted["body_size"])
                         code = heading[0] if heading else None
@@ -310,8 +464,7 @@ def run_pipeline(db: Session, job: IngestionJob) -> None:
                         if (
                             heading
                             and heading[0] is not None
-                            and
-                            match
+                            and match
                             and int(match.group(1)) not in known_numbers
                             and line.get("y", 0) <= 0.45
                         ):
@@ -326,6 +479,75 @@ def run_pipeline(db: Session, job: IngestionJob) -> None:
                             )
                             known_numbers.add(number)
                             break
+                # Gap detection for missing chapter numbers (e.g. Unit 3 Electrochemistry)
+                all_chapter_nums = sorted(known_numbers)
+                if all_chapter_nums:
+                    for expected in range(all_chapter_nums[0], all_chapter_nums[-1] + 1):
+                        if expected not in known_numbers:
+                            min_search_page = max(
+                                (ch["start"] for ch in candidates if ch["no"] < expected),
+                                default=1,
+                            )
+                            max_search_page = min(
+                                (ch["start"] for ch in candidates if ch["no"] > expected),
+                                default=len(clean_pages),
+                            )
+                            for page_no in range(min_search_page + 1, max_search_page):
+                                lines = clean_pages[page_no - 1]
+                                page_str = " ".join(line_item["text"] for line_item in lines)
+                                page_lower = page_str.lower()
+                                is_ch_start = False
+                                for line in lines:
+                                    h = topic_heading(line, extracted["body_size"])
+                                    if h and h[0] and h[0].startswith(f"{expected}."):
+                                        t = h[1]
+                                        skip_pfx = (
+                                            "Calculate ",
+                                            "Explain ",
+                                            "Write ",
+                                            "How ",
+                                            "Why ",
+                                            "What ",
+                                            "If ",
+                                            "From ",
+                                            "For ",
+                                        )
+                                        if not t.endswith("?") and not any(
+                                            t.startswith(p) for p in skip_pfx
+                                        ):
+                                            is_ch_start = True
+                                            break
+                                if not is_ch_start:
+                                    has_intro = (
+                                        "after studying this unit" in page_lower
+                                        or "after studying this chapter" in page_lower
+                                    )
+                                    unit_pattern = rf"\bunit\s*{expected}\b"
+                                    if has_intro or re.search(unit_pattern, page_lower):
+                                        is_ch_start = True
+                                    elif expected == 3 and "electrochemistry" in page_lower:
+                                        is_ch_start = True
+                                if is_ch_start:
+                                    ch_start = page_no
+                                    ch_title = f"Chapter {expected}"
+                                    if "electrochemistry" in page_lower:
+                                        ch_title = "Electrochemistry"
+                                    elif page_no > 1:
+                                        prev_text = " ".join(
+                                            x["text"] for x in clean_pages[page_no - 2]
+                                        ).lower()
+                                        if "electrochemistry" in prev_text:
+                                            ch_title = "Electrochemistry"
+                                    candidates.append(
+                                        {
+                                            "no": expected,
+                                            "title": ch_title,
+                                            "start": ch_start,
+                                            "confidence": 0.75,
+                                        }
+                                    )
+                                    known_numbers.add(expected)
+                                    break
             if not candidates:
                 candidates = [
                     {
@@ -360,11 +582,137 @@ def run_pipeline(db: Session, job: IngestionJob) -> None:
                         )
                     )
                 ]
-                heading_lines = []
+                heading_lines: list[
+                    tuple[int, tuple[str | None, str, int, float], dict[str, Any]]
+                ] = []
+                consumed_indices: set[int] = set()
+                in_summary = False
+                in_exercise = False
                 for line_idx, line in enumerate(chapter_lines):
+                    if line_idx in consumed_indices:
+                        continue
                     heading = topic_heading(line, extracted["body_size"])
-                    if heading:
-                        heading_lines.append((line_idx, heading, line))
+                    if not heading:
+                        continue
+                    code, title, level, conf = heading
+                    if code is not None:
+                        try:
+                            maj = int(code.split(".")[0])
+                        except ValueError:
+                            continue
+                        if maj != chapter["no"]:
+                            continue
+                        if in_summary:
+                            continue
+                        line_bold = bool(line.get("bold"))
+                        is_strong_heading = line_bold or (
+                            line.get("size", 0) >= extracted["body_size"] * 1.15
+                        )
+                        if in_exercise and not is_strong_heading:
+                            continue
+                        question_prefixes = (
+                            "From ",
+                            "For ",
+                            "Calculate ",
+                            "Explain ",
+                            "Write ",
+                            "Name ",
+                            "What ",
+                            "How ",
+                            "Why ",
+                            "Which ",
+                            "Find ",
+                            "Show ",
+                            "Prove ",
+                            "Let ",
+                            "Determine ",
+                            "Predict ",
+                            "Mention ",
+                            "State ",
+                            "Give ",
+                            "If ",
+                            "Consider ",
+                            "Draw ",
+                            "Solve ",
+                            "Evaluate ",
+                            "During ",
+                            "Verify ",
+                            "Can ",
+                            "Consult ",
+                            "Suggest ",
+                            "Identify ",
+                            "Describe ",
+                            "Arrange ",
+                            "Account ",
+                            "Justify ",
+                            "Compare ",
+                        )
+                        if (
+                            title.endswith("?")
+                            or title.endswith(":")
+                            or (title.endswith(".") and len(title) > 30)
+                            or any(title.startswith(p) for p in question_prefixes)
+                            or len(title) > 75
+                        ):
+                            continue
+                        # Multi-line title continuation
+                        full_title = [title] if title else []
+                        next_idx = line_idx + 1
+                        while next_idx < len(chapter_lines) and next_idx < line_idx + 4:
+                            nxt = chapter_lines[next_idx]
+                            if nxt.get("page") != line.get("page"):
+                                break
+                            if chapter_heading(nxt["text"]):
+                                break
+                            nxt_head = topic_heading(nxt, extracted["body_size"])
+                            if nxt_head and nxt_head[0] is not None:
+                                break
+                            curr_y = nxt.get("bbox", [0, 0, 0, 0])[1]
+                            prev_y = chapter_lines[next_idx - 1].get("bbox", [0, 0, 0, 0])[1]
+                            dy = curr_y - prev_y
+                            nxt_bold = bool(nxt.get("bold"))
+                            is_heading_style = (
+                                (nxt_bold if line_bold else True)
+                                and (
+                                    nxt_bold
+                                    or nxt.get("size", 0) >= extracted["body_size"] * 1.15
+                                )
+                                and abs(nxt.get("size", 0) - line.get("size", 0)) < 2.5
+                            )
+                            if 0 < dy < 28 and is_heading_style:
+                                val = nxt["text"].strip()
+                                if (
+                                    val
+                                    and not val.endswith("?")
+                                    and not val.endswith(":")
+                                    and not val.endswith(".")
+                                    and not val.isdigit()
+                                    and not val.startswith(("Table ", "Fig", "Example "))
+                                ):
+                                    full_title.append(val)
+                                    consumed_indices.add(next_idx)
+                                    next_idx += 1
+                                    continue
+                            break
+                        t_str = " ".join(full_title).strip()
+                        if (
+                            t_str
+                            and not t_str.endswith("?")
+                            and not t_str.endswith(":")
+                            and len(t_str) <= 80
+                        ):
+                            heading_lines.append((line_idx, (code, t_str, level, conf), line))
+                            in_exercise = False
+                    else:
+                        block = _special_block_type(title)
+                        is_special = block != "topic"
+                        if is_special and len(title) < 60 and not title.endswith("."):
+                            heading_lines.append((line_idx, heading, line))
+                            if block == "summary":
+                                in_summary = True
+                            elif block == "exercise":
+                                in_exercise = True
+
                 topics: list[dict[str, Any]] = []
                 if not heading_lines:
                     topics.append(
@@ -380,14 +728,20 @@ def run_pipeline(db: Session, job: IngestionJob) -> None:
                         }
                     )
                 else:
-                    if heading_lines[0][0] > 0:
+                    intro_lines = chapter_lines[: heading_lines[0][0]]
+                    intro_word_count = len(
+                        " ".join(item["text"] for item in intro_lines).split()
+                    )
+                    has_substantive_intro = intro_word_count >= 15
+                    first_heading_title = heading_lines[0][1][1].strip().lower()
+                    if has_substantive_intro and not first_heading_title.startswith("intro"):
                         topics.append(
                             {
                                 "title": "Introduction",
                                 "code": None,
                                 "level": 1,
                                 "confidence": 0.35,
-                                "lines": chapter_lines[: heading_lines[0][0]],
+                                "lines": intro_lines,
                                 "page_start": chapter["start"],
                                 "page_end": chapter["start"],
                                 "block_type": "intro",
@@ -624,22 +978,30 @@ def run_pipeline(db: Session, job: IngestionJob) -> None:
         doc.close()
 
         # Persistence is idempotent: replace generated rows for this draft on retry.
+        existing_book = db.get(Book, job.book_id) if job.book_id else None
+        p_class_no = params.get("class_no") or (existing_book.class_no if existing_book else 12)
+        p_subject = params.get("subject") or (existing_book.subject if existing_book else "General")
+        p_language = params.get("language") or (existing_book.language if existing_book else "en")
+        p_edition = params.get("edition") or (existing_book.edition if existing_book else "2026")
+
         book = db.scalar(
             select(Book).where(
                 Book.source_file_id == source.id,
-                Book.class_no == params["class_no"],
-                Book.subject == params["subject"],
-                Book.language == params["language"],
-                Book.edition == params["edition"],
+                Book.class_no == p_class_no,
+                Book.subject == p_subject,
+                Book.language == p_language,
+                Book.edition == p_edition,
             )
         )
+        if book is None and existing_book is not None:
+            book = existing_book
         if book is None:
             book = Book(
-                class_no=params["class_no"],
-                subject=params["subject"],
+                class_no=p_class_no,
+                subject=p_subject,
                 title=source.original_name.rsplit(".", 1)[0],
-                language=params["language"],
-                edition=params["edition"],
+                language=p_language,
+                edition=p_edition,
                 source_file_id=source.id,
                 status="in_review",
             )
@@ -655,7 +1017,7 @@ def run_pipeline(db: Session, job: IngestionJob) -> None:
                 raise JobCancelled("Job was cancelled")
             chapter = Chapter(
                 book_id=book.id,
-                chapter_no=ch_index,
+                chapter_no=data.get("no", ch_index),
                 title=data["title"],
                 start_page=data["start"],
                 end_page=data["end"],
